@@ -1,0 +1,30 @@
+# Optional local stand-ins for cloud edges. Not tenant packages: they are not
+# read from renglo.yaml. Each one is cloned on develop into dest, set up when
+# its venv is missing, and started in its own terminal when the developer opts in.
+- id: wss
+  title: WebSocket emulator
+  repo: renglo/wss
+  dest: dev/wss
+  venv: wss-venv
+  port: 8080
+  url: ws://127.0.0.1:8080
+  setup: ./setup_venv.sh
+  start: source wss-venv/bin/activate && python dev_ws_service.py
+- id: webhook
+  title: Webhook edge
+  repo: renglo/webhook
+  dest: dev/webhook
+  venv: webhook-venv
+  port: 5055
+  url: http://127.0.0.1:5055
+  setup: ./setup_venv.sh
+  start: source webhook-venv/bin/activate && python dev_webhook_edge.py
+- id: ebe
+  title: EventBridge emulator
+  repo: renglo/ebe
+  dest: dev/ebe
+  venv: venv
+  port: 5056
+  url: http://127.0.0.1:5056
+  setup: ./setup_venv.sh
+  start: source run.sh
