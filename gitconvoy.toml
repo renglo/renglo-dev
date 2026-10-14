@@ -1,0 +1,6 @@
+# git-convoy membership marker (repo root).
+# Bootstrap launcher at workspace root; not under ops/ because it creates the tree.
+role = "ops"
+version = "python"
+publish = "none"
+pin = "git-tag"
