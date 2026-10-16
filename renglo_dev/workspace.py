@@ -19,6 +19,10 @@ the workspace, and that must be a project folder.
   cd my-app
   git clone https://github.com/renglo/renglo-dev.git
   ./renglo-dev/renglo
+
+On Windows, from the same folder:
+
+  .\\renglo-dev\\renglo.ps1
 """
 
 

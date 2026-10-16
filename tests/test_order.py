@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from renglo_dev.bom import Bom, PlanItem
 from renglo_dev.heal import editable_target, install_order
 from renglo_dev.launch import _scripts
+from renglo_dev.platform import is_windows, venv_renglo_serve
 
 
 class OrderTests(unittest.TestCase):
@@ -34,13 +35,13 @@ class OrderTests(unittest.TestCase):
             self.assertEqual(order, ["renglo-lib", "renglo-api", "zeta", "alpha", "acme-wl"])
             self.assertIsNone(editable_target(workspace / "dev" / "empty"))
 
-    def test_start_scripts_are_valid_bash(self):
+    def test_start_scripts_are_valid(self):
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             root = workspace / "renglo-dev"
-            serve = root / "venv" / "bin" / "renglo-serve"
-            serve.parent.mkdir(parents=True)
-            serve.write_text("#!/bin/bash\n", encoding="utf-8")
+            serve = venv_renglo_serve(root / "venv")
+            serve.parent.mkdir(parents=True, exist_ok=True)
+            serve.write_text("", encoding="utf-8")
             api = workspace / "dev" / "renglo-api"
             api.mkdir(parents=True)
             config = api / "env_config.py"
@@ -64,9 +65,15 @@ class OrderTests(unittest.TestCase):
             finally:
                 launch._port_open = original
             self.assertEqual([item[0] for item in scripts], ["renglo-api", "renglo-console"])
-            for _title, script, _port in scripts:
-                result = subprocess.run(["bash", "-n", str(script)], check=False)
-                self.assertEqual(result.returncode, 0, script.read_text(encoding="utf-8"))
+            for title, script, _port in scripts:
+                text = script.read_text(encoding="utf-8")
+                if is_windows():
+                    self.assertTrue(script.suffix.lower() == ".ps1", text)
+                    if title == "renglo-api":
+                        self.assertIn("renglo-serve", text.lower())
+                else:
+                    result = subprocess.run(["bash", "-n", str(script)], check=False)
+                    self.assertEqual(result.returncode, 0, text)
 
     def _project(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)

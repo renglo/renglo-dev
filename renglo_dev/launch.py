@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from renglo_dev.heal import load_emulators
+from renglo_dev.platform import bash_for_emulators, is_windows, venv_renglo_serve
 from renglo_dev.workspace import display, launcher_path, read_env_file
 
 
@@ -55,45 +56,25 @@ def _scripts(
     run_dir.mkdir(parents=True, exist_ok=True)
     planned: list[tuple[str, Path, int]] = []
 
-    serve = root / "venv" / "bin" / "renglo-serve"
+    serve = venv_renglo_serve(root / "venv")
     if serve.is_file() and Path(config_path).is_file():
-        body = "\n".join(
-            [
-                "#!/bin/bash",
-                "set -uo pipefail",
-                f"export AWS_PROFILE={_sh(profile)}",
-                f"export AWS_DEFAULT_REGION={_sh(region)}",
-                f"export RENGLO_CONFIG_PATH={_sh(config_path)}",
-                f"cd {_sh(str(workspace / 'dev' / 'renglo-api'))} || exit 1",
-                f"source {_sh(str(root / 'venv' / 'bin' / 'activate'))} || exit 1",
-                'echo "API  http://127.0.0.1:5001"',
-                "renglo-serve --host 127.0.0.1 --port 5001 --debug",
-                "status=$?",
-                _keep_open(),
-                "exit $status",
-                "",
-            ]
-        )
-        planned.append(("renglo-api", _write(run_dir / "api.sh", body), API_PORT))
+        if is_windows():
+            body = _api_ps1(workspace, root, profile, region, config_path, serve)
+            planned.append(("renglo-api", _write(run_dir / "api.ps1", body), API_PORT))
+        else:
+            body = _api_sh(workspace, root, profile, region, config_path)
+            planned.append(("renglo-api", _write(run_dir / "api.sh", body), API_PORT))
     else:
         print("API was not started: renglo-dev/venv or dev/renglo-api/env_config.py is missing.")
 
     console = workspace / "console"
     if (console / "node_modules").is_dir() and (console / "package.json").is_file():
-        body = "\n".join(
-            [
-                "#!/bin/bash",
-                "set -uo pipefail",
-                f"cd {_sh(str(console))} || exit 1",
-                'echo "Console  http://127.0.0.1:5174"',
-                "npm run dev",
-                "status=$?",
-                _keep_open(),
-                "exit $status",
-                "",
-            ]
-        )
-        planned.append(("renglo-console", _write(run_dir / "console.sh", body), CONSOLE_PORT))
+        if is_windows():
+            body = _console_ps1(console)
+            planned.append(("renglo-console", _write(run_dir / "console.ps1", body), CONSOLE_PORT))
+        else:
+            body = _console_sh(console)
+            planned.append(("renglo-console", _write(run_dir / "console.sh", body), CONSOLE_PORT))
     else:
         print("Console was not started: run ./renglo install after console/ is cloned.")
 
@@ -116,24 +97,12 @@ def _scripts(
             continue
         port = int(emulator.get("port") or "0")
         url = emulator.get("url") or ""
-        body = "\n".join(
-            [
-                "#!/bin/bash",
-                "set -uo pipefail",
-                f"export AWS_PROFILE={_sh(profile)}",
-                f"export AWS_DEFAULT_REGION={_sh(region)}",
-                f"export RENGLO_CONFIG_PATH={_sh(config_path)}",
-                "export LOCAL_API_BASE=${LOCAL_API_BASE:-http://127.0.0.1:5001}",
-                f"cd {_sh(str(dest))} || exit 1",
-                f'echo "{identity}  {url}"',
-                start,
-                "status=$?",
-                _keep_open(),
-                "exit $status",
-                "",
-            ]
-        )
-        planned.append((f"renglo-{identity}", _write(run_dir / f"{identity}.sh", body), port))
+        if is_windows():
+            body = _emulator_ps1(dest, identity, url, profile, region, config_path, start)
+            planned.append((f"renglo-{identity}", _write(run_dir / f"{identity}.ps1", body), port))
+        else:
+            body = _emulator_sh(dest, identity, url, profile, region, config_path, start)
+            planned.append((f"renglo-{identity}", _write(run_dir / f"{identity}.sh", body), port))
 
     ready = []
     for title, script, port in planned:
@@ -142,6 +111,122 @@ def _scripts(
             continue
         ready.append((title, script, port))
     return ready
+
+
+def _api_sh(workspace: Path, root: Path, profile: str, region: str, config_path: str) -> str:
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            "set -uo pipefail",
+            f"export AWS_PROFILE={_sh(profile)}",
+            f"export AWS_DEFAULT_REGION={_sh(region)}",
+            f"export RENGLO_CONFIG_PATH={_sh(config_path)}",
+            f"cd {_sh(str(workspace / 'dev' / 'renglo-api'))} || exit 1",
+            f"source {_sh(str(root / 'venv' / 'bin' / 'activate'))} || exit 1",
+            'echo "API  http://127.0.0.1:5001"',
+            "renglo-serve --host 127.0.0.1 --port 5001 --debug",
+            "status=$?",
+            _keep_open_sh(),
+            "exit $status",
+            "",
+        ]
+    )
+
+
+def _api_ps1(workspace: Path, root: Path, profile: str, region: str, config_path: str, serve: Path) -> str:
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$env:AWS_PROFILE = {_ps(profile)}",
+            f"$env:AWS_DEFAULT_REGION = {_ps(region)}",
+            f"$env:RENGLO_CONFIG_PATH = {_ps(config_path)}",
+            f"Set-Location {_ps(str(workspace / 'dev' / 'renglo-api'))}",
+            'Write-Host "API  http://127.0.0.1:5001"',
+            f"& {_ps(str(serve))} --host 127.0.0.1 --port 5001 --debug",
+            "exit $LASTEXITCODE",
+            "",
+        ]
+    )
+
+
+def _console_sh(console: Path) -> str:
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            "set -uo pipefail",
+            f"cd {_sh(str(console))} || exit 1",
+            'echo "Console  http://127.0.0.1:5174"',
+            "npm run dev",
+            "status=$?",
+            _keep_open_sh(),
+            "exit $status",
+            "",
+        ]
+    )
+
+
+def _console_ps1(console: Path) -> str:
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"Set-Location {_ps(str(console))}",
+            'Write-Host "Console  http://127.0.0.1:5174"',
+            "npm run dev",
+            "exit $LASTEXITCODE",
+            "",
+        ]
+    )
+
+
+def _emulator_sh(
+    dest: Path, identity: str, url: str, profile: str, region: str, config_path: str, start: str
+) -> str:
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            "set -uo pipefail",
+            f"export AWS_PROFILE={_sh(profile)}",
+            f"export AWS_DEFAULT_REGION={_sh(region)}",
+            f"export RENGLO_CONFIG_PATH={_sh(config_path)}",
+            "export LOCAL_API_BASE=${LOCAL_API_BASE:-http://127.0.0.1:5001}",
+            f"cd {_sh(str(dest))} || exit 1",
+            f'echo "{identity}  {url}"',
+            start,
+            "status=$?",
+            _keep_open_sh(),
+            "exit $status",
+            "",
+        ]
+    )
+
+
+def _emulator_ps1(
+    dest: Path, identity: str, url: str, profile: str, region: str, config_path: str, start: str
+) -> str:
+    bash = bash_for_emulators()
+    if not bash:
+        return "\n".join(
+            [
+                "$ErrorActionPreference = 'Stop'",
+                f'Write-Error "Git Bash (bash on PATH) is required to start emulator {identity}."',
+                "exit 1",
+                "",
+            ]
+        )
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$env:AWS_PROFILE = {_ps(profile)}",
+            f"$env:AWS_DEFAULT_REGION = {_ps(region)}",
+            f"$env:RENGLO_CONFIG_PATH = {_ps(config_path)}",
+            '$env:LOCAL_API_BASE = if ($env:LOCAL_API_BASE) { $env:LOCAL_API_BASE } else { "http://127.0.0.1:5001" }',
+            f"Set-Location {_ps(str(dest))}",
+            f'Write-Host "{identity}  {url}"',
+            f"& {_ps(bash)} -lc {_ps(start)}",
+            "exit $LASTEXITCODE",
+            "",
+        ]
+    )
 
 
 def _run_here(scripts: list[tuple[str, Path, int]]) -> int:
@@ -153,19 +238,20 @@ def _run_here(scripts: list[tuple[str, Path, int]]) -> int:
     def stop(*_args) -> None:
         for process in processes:
             if process.poll() is None:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+                if is_windows():
+                    process.terminate()
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     env = os.environ.copy()
     env.pop("RENGLO_KEEP_OPEN", None)
     for _title, script, _port in scripts:
-        processes.append(
-            subprocess.Popen(["bash", str(script)], start_new_session=True, env=env)
-        )
+        processes.append(_popen_script(script, env))
     exit_code = 0
     try:
         while True:
@@ -182,11 +268,35 @@ def _run_here(scripts: list[tuple[str, Path, int]]) -> int:
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                if is_windows():
+                    process.kill()
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
     return exit_code
+
+
+def _popen_script(script: Path, env: dict[str, str]) -> subprocess.Popen:
+    if script.suffix.lower() == ".ps1":
+        return subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ],
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if is_windows() else 0,
+        )
+    return subprocess.Popen(
+        ["bash", str(script)],
+        start_new_session=not is_windows(),
+        env=env,
+    )
 
 
 def _open_terminals(workspace: Path, scripts: list[tuple[str, Path, int]]) -> int:
@@ -240,11 +350,12 @@ def _port_open(port: int) -> bool:
 
 def _write(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
-    path.chmod(0o755)
+    if not is_windows():
+        path.chmod(0o755)
     return path
 
 
-def _keep_open() -> str:
+def _keep_open_sh() -> str:
     return "\n".join(
         [
             'if [[ "${RENGLO_KEEP_OPEN:-}" == "1" ]]; then',
@@ -258,3 +369,7 @@ def _keep_open() -> str:
 
 def _sh(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _ps(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"

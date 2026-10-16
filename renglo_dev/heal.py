@@ -19,6 +19,15 @@ from renglo_dev.configgen import (
     ensure_local_config,
     placeholder_keys,
 )
+from renglo_dev.platform import (
+    bash_for_emulators,
+    editable_dist_info_glob,
+    is_windows,
+    launcher_command,
+    patch_venv_pip_config,
+    venv_python,
+    venv_ready,
+)
 from renglo_dev.workspace import display, resolve_bom
 
 
@@ -33,7 +42,10 @@ def prerequisites() -> list[str]:
     if sys.version_info < (3, 12):
         missing.append("python3.12 (this script is running on an older Python)")
     if shutil.which("python3.12") is None and sys.version_info < (3, 12):
-        missing.append("python3.12 on PATH")
+        if is_windows() and shutil.which("py") is None:
+            missing.append("python3.12 or py (Python launcher) on PATH")
+        elif not is_windows():
+            missing.append("python3.12 on PATH")
     for command in ("git", "node", "npm", "aws"):
         if shutil.which(command) is None:
             missing.append(command)
@@ -53,7 +65,7 @@ def heal(workspace: Path, root: Path, state: dict, *, refresh: bool) -> tuple[li
     errors: list[str] = []
     spec = str(state.get("bom", "")).strip()
     if not spec:
-        return ["No BOM is saved. Run ./renglo again and answer the prompt."], None
+        return [f"No BOM is saved. Run {launcher_command(root)} again and answer the prompt."], None
     try:
         checkout, github = resolve_bom(workspace, spec)
     except Exception as exc:
@@ -133,7 +145,7 @@ def doctor(workspace: Path, root: Path, state: dict) -> int:
     spec = str(state.get("bom", "")).strip()
     if not spec:
         print()
-        print("No BOM saved yet. Run ./renglo install and it will ask where the BOM is.")
+        print(f"No BOM saved yet. Run {launcher_command(root)} install and it will ask where the BOM is.")
         return 1
 
     try:
@@ -170,7 +182,7 @@ def doctor(workspace: Path, root: Path, state: dict) -> int:
     print()
     print("Python")
     venv = root / "venv"
-    if (venv / "bin" / "python").is_file():
+    if venv_ready(venv):
         print(f"  venv     {venv}")
         index = editable_index(venv)
         for project in install_order(workspace, bom):
@@ -321,7 +333,7 @@ def editable_target(path: Path) -> Path | None:
 
 def editable_index(venv: Path) -> dict[Path, Path]:
     found: dict[Path, Path] = {}
-    for direct in venv.glob("lib/python*/site-packages/*.dist-info/direct_url.json"):
+    for direct in editable_dist_info_glob(venv):
         try:
             data = json.loads(direct.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -361,7 +373,7 @@ def install_python(workspace: Path, root: Path, bom: Bom, *, refresh: bool) -> l
         errors.append("dev/renglo-api is missing, so the API was not installed")
     venv = ensure_venv(root)
     env = _pypi_env(root)
-    python = venv / "bin" / "python"
+    python = venv_python(venv)
     stamp_dir = root / ".run"
     stamp_dir.mkdir(parents=True, exist_ok=True)
     pip_stamp = stamp_dir / "pip-upgraded"
@@ -442,21 +454,11 @@ def install_console(workspace: Path, root: Path, *, refresh: bool) -> bool:
 
 def ensure_venv(root: Path) -> Path:
     venv = root / "venv"
-    python = venv / "bin" / "python"
+    python = venv_python(venv)
     if not python.is_file():
         print(f"venv     {venv}")
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
-    conf = venv / "pip.conf"
-    conf.write_text(f"[global]\nindex-url = {PYPI_INDEX}\n", encoding="utf-8")
-    activate = venv / "bin" / "activate"
-    marker = "# renglo-dev: use PyPI while this venv is active"
-    if activate.is_file():
-        text = activate.read_text(encoding="utf-8")
-        if marker not in text:
-            activate.write_text(
-                text.rstrip() + f"\n\n{marker}\nexport PIP_CONFIG_FILE=\"$VIRTUAL_ENV/pip.conf\"\n",
-                encoding="utf-8",
-            )
+    patch_venv_pip_config(venv)
     return venv
 
 
@@ -473,7 +475,13 @@ def setup_emulator(root: Path, dest: Path, emulator: dict[str, str], *, refresh:
         return f"{emulator.get('id', dest.name)}: setup script {setup} is missing"
     print(f"setup    {emulator.get('id', dest.name)}")
     env = _pypi_env(root)
-    code = _run(["bash", str(setup_path)], env=env, cwd=dest)
+    if is_windows():
+        bash = bash_for_emulators()
+        if not bash:
+            return f"{emulator.get('id', dest.name)}: Git Bash (bash on PATH) is required for {setup}"
+        code = _run([bash, str(setup_path)], env=env, cwd=dest)
+    else:
+        code = _run(["bash", str(setup_path)], env=env, cwd=dest)
     if code != 0:
         return f"{emulator.get('id', dest.name)}: {setup} failed"
     return None

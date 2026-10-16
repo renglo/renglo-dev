@@ -16,6 +16,7 @@ from renglo_dev import __version__
 from renglo_dev.configgen import print_handoff
 from renglo_dev.heal import doctor, heal, load_emulators, prerequisites, print_prerequisites
 from renglo_dev.launch import launch
+from renglo_dev.platform import launcher_command, venv_renglo_serve
 from renglo_dev.workspace import (
     WorkspaceError,
     load_state,
@@ -64,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Could not finish:")
         for error in errors:
             print(f"  - {error}")
-        print("What succeeded is still in place. Run ./renglo again to continue.")
+        print(f"What succeeded is still in place. Run {launcher_command(root)} again to continue.")
     if args.command == "install":
         return 1 if errors else 0
     if not _can_start(workspace, root):
@@ -174,7 +175,7 @@ def _aws_region(profile: str) -> str:
 
 def _prompt(text: str, default: str | None = None) -> str:
     if not sys.stdin.isatty():
-        hint = f" Set it before running, or run ./renglo in a terminal. ({text.splitlines()[0]})"
+        hint = f" Set it before running, or run the launcher in a terminal. ({text.splitlines()[0]})"
         raise WorkspaceError("This step needs an answer and stdin is not a terminal." + hint)
     suffix = f" [{default}]" if default else ""
     value = input(f"{text}{suffix}: ").strip()
@@ -182,7 +183,7 @@ def _prompt(text: str, default: str | None = None) -> str:
 
 
 def _can_start(workspace: Path, root: Path) -> bool:
-    serve = root / "venv" / "bin" / "renglo-serve"
+    serve = venv_renglo_serve(root / "venv")
     console = workspace / "console" / "node_modules"
     config = workspace / "dev" / "renglo-api" / "env_config.py"
     if serve.is_file() and console.is_dir() and config.is_file():
