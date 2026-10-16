@@ -1,4 +1,4 @@
-# renglo-dev
+# renglo-dev XXX
 
 Installer and launcher for a local Renglo workspace. It reads `renglo.yaml` from a BOM and clones the product repos into the usual folders. The same command checks the workspace on later runs, installs anything that is missing, and starts the API and the console.
 
