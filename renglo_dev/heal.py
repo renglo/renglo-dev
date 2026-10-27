@@ -311,10 +311,8 @@ def install_order(workspace: Path, bom: Bom) -> list[Path]:
     for item in bom.items:
         if item.python:
             add(workspace / item.dest)
-    extensions = workspace / "extensions"
-    if extensions.is_dir():
-        for child in sorted(path for path in extensions.iterdir() if path.is_dir()):
-            add(child)
+    for child in discover_local_extensions(workspace):
+        add(child)
     dev = workspace / "dev"
     if dev.is_dir():
         for child in sorted(path for path in dev.iterdir() if path.is_dir() and path.name.endswith("-wl")):
@@ -322,10 +320,26 @@ def install_order(workspace: Path, bom: Bom) -> list[Path]:
     return selected
 
 
+def discover_local_extensions(workspace: Path) -> list[Path]:
+    """Extension checkouts under extensions/ that ship an installable Python tree."""
+    root = workspace / "extensions"
+    if not root.is_dir():
+        return []
+    found: list[Path] = []
+    for child in sorted(path for path in root.iterdir() if path.is_dir()):
+        if editable_target(child) is not None:
+            found.append(child)
+    return found
+
+
 def editable_target(path: Path) -> Path | None:
+    """Directory passed to pip install -e (package/ or extension root)."""
     package = path / "package" / "pyproject.toml"
     if package.is_file():
         return package.parent
+    package_setup = path / "package" / "setup.py"
+    if package_setup.is_file():
+        return package_setup.parent
     if (path / "pyproject.toml").is_file() or (path / "setup.py").is_file():
         return path
     return None
@@ -417,7 +431,7 @@ def _install_editables(projects, failed, index, python, env, workspace, *, refre
             print(f"editable {display(workspace, project)}")
             continue
         print(f"pip      -e {rel}")
-        if _pip_editable(python, target, env) != 0:
+        if _pip_editable(python, target, env, workspace) != 0:
             failed.append(project)
 
 
@@ -426,7 +440,7 @@ def _retry_editables(failed, python, env, workspace, errors: list[str]) -> None:
         target = editable_target(project)
         assert target is not None
         print(f"retry    -e {display(workspace, target)}")
-        if _pip_editable(python, target, env) != 0:
+        if _pip_editable(python, target, env, workspace) != 0:
             errors.append(f"pip install -e {display(workspace, target)} failed")
 
 
@@ -487,11 +501,31 @@ def setup_emulator(root: Path, dest: Path, emulator: dict[str, str], *, refresh:
     return None
 
 
-def _pip_editable(python: Path, target: Path, env: dict[str, str]) -> int:
-    return _run(
-        [str(python), "-m", "pip", "install", "--index-url", PYPI_INDEX, "-e", str(target)],
-        env=env,
-    )
+def _is_workspace_extension_package(workspace: Path, target: Path) -> bool:
+    try:
+        target.resolve().relative_to((workspace / "extensions").resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _pip_editable(python: Path, target: Path, env: dict[str, str], workspace: Path) -> int:
+    command = [
+        str(python),
+        "-m",
+        "pip",
+        "install",
+        "--index-url",
+        PYPI_INDEX,
+        "-e",
+        str(target),
+    ]
+    # Workspace extensions declare each other by import name; pip would look on
+    # PyPI and fail or install the wrong package. Sibling editables from heal
+    # satisfy those imports.
+    if _is_workspace_extension_package(workspace, target):
+        command.append("--no-deps")
+    return _run(command, env=env)
 
 
 def _pypi_env(root: Path) -> dict[str, str]:

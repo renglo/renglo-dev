@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from renglo_dev.bom import Bom, PlanItem
-from renglo_dev.heal import editable_target, install_order
+from renglo_dev.heal import discover_local_extensions, editable_target, install_order, needs_editable
 from renglo_dev.launch import _scripts
 from renglo_dev.platform import is_windows, venv_renglo_serve
 
@@ -34,6 +34,31 @@ class OrderTests(unittest.TestCase):
             order = [path.name for path in install_order(workspace, bom)]
             self.assertEqual(order, ["renglo-lib", "renglo-api", "zeta", "alpha", "acme-wl"])
             self.assertIsNone(editable_target(workspace / "dev" / "empty"))
+
+    def test_discover_local_extensions_skips_folders_without_a_package(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            self._project(workspace / "extensions" / "alpha" / "package")
+            (workspace / "extensions" / "ui-only").mkdir(parents=True)
+            names = [path.name for path in discover_local_extensions(workspace)]
+            self.assertEqual(names, ["alpha"])
+
+    def test_discover_local_extensions_is_sorted_by_folder_name(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            self._project(workspace / "extensions" / "charlie" / "package")
+            self._project(workspace / "extensions" / "alpha" / "package")
+            self._project(workspace / "extensions" / "bravo" / "package")
+            names = [path.name for path in discover_local_extensions(workspace)]
+            self.assertEqual(names, ["alpha", "bravo", "charlie"])
+
+    def test_needs_editable_when_package_not_in_venv(self):
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            self._project(workspace / "extensions" / "alpha" / "package")
+            target = editable_target(workspace / "extensions" / "alpha")
+            assert target is not None
+            self.assertTrue(needs_editable(target, {}, refresh=False))
 
     def test_start_scripts_are_valid(self):
         with TemporaryDirectory() as tmp:
