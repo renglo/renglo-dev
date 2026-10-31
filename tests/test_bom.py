@@ -56,6 +56,37 @@ class BomTests(unittest.TestCase):
         self.assertTrue(any("mystery" in error for error in bom.errors))
         self.assertTrue(all(not item.dest.startswith("ops/") for item in bom.items))
 
+    def test_empty_packages_still_include_core(self):
+        bom = parse_bom("name: liga\npackages: {}\n")
+        dests = {item.dest: item for item in bom.items}
+        self.assertEqual(list(dests), ["dev/renglo-lib", "dev/renglo-api", "console"])
+        self.assertEqual(dests["dev/renglo-lib"].repo, "renglo/renglo-lib")
+        self.assertEqual(dests["dev/renglo-api"].repo, "renglo/renglo-api")
+        self.assertEqual(dests["console"].repo, "renglo/console")
+        self.assertFalse(bom.errors)
+
+    def test_missing_core_is_filled_and_a_fork_is_kept(self):
+        bom = parse_bom(
+            """
+packages:
+  renglo-lib:
+    repo: acme/renglo-lib
+    python: renglo-lib
+  data:
+    python: renglo-data
+    npm: '@renglo/data'
+"""
+        )
+        dests = {item.dest: item.repo for item in bom.items}
+        self.assertEqual(
+            list(dests),
+            ["dev/renglo-lib", "dev/renglo-api", "console", "extensions/data"],
+        )
+        self.assertEqual(dests["dev/renglo-lib"], "acme/renglo-lib")
+        self.assertEqual(dests["dev/renglo-api"], "renglo/renglo-api")
+        self.assertEqual(dests["console"], "renglo/console")
+        self.assertFalse(bom.errors)
+
     def test_forked_core_repo_stays_under_dev(self):
         self.assertEqual(checkout_path("acme/renglo-lib", {}), "dev/renglo-lib")
         self.assertEqual(github_repo("data", {"repo": "acme/data", "npm": "@renglo/data"}), "acme/data")

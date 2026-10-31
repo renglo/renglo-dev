@@ -79,7 +79,7 @@ $env:RENGLO_EMULATORS = "none"   # or all, or wss,ebe
 
 ## What gets cloned
 
-Every entry under `packages` in `renglo.yaml`:
+`renglo-lib`, `renglo-api`, and the console are always cloned, including when `packages` is empty. Add the rest under `packages` in `renglo.yaml` when you have them:
 
 | Package | Folder |
 | --- | --- |

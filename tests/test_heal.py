@@ -34,8 +34,12 @@ class HealTests(unittest.TestCase):
             head = lib / ".git" / "HEAD"
             head.parent.mkdir()
             head.write_text("ref: refs/heads/feature/stay\n", encoding="utf-8")
-            (workspace / "dev" / "renglo-api").mkdir()
-            (workspace / "console").mkdir()
+            api = workspace / "dev" / "renglo-api"
+            api.mkdir()
+            (api / ".git").mkdir()
+            console = workspace / "console"
+            console.mkdir()
+            (console / ".git").mkdir()
 
             state = {
                 "bom": str(bom),

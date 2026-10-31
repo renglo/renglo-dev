@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from renglo_dev.bom import BRANCH, Bom, parse_bom, parse_manifest
+from renglo_dev.bom import BRANCH, Bom, core_items, parse_bom, parse_manifest
 from renglo_dev.configgen import (
     BACKEND_PLACEHOLDERS,
     CONSOLE_PLACEHOLDERS,
@@ -34,7 +34,7 @@ from renglo_dev.workspace import display, resolve_bom
 PYPI_INDEX = "https://pypi.org/simple"
 NPM_REGISTRY = "https://registry.npmjs.org"
 
-CORE_DESTS = ("dev/renglo-lib", "dev/renglo-api", "console")
+CORE_DESTS = tuple(item.dest for item in core_items())
 
 
 def prerequisites() -> list[str]:
@@ -83,8 +83,6 @@ def heal(workspace: Path, root: Path, state: dict, *, refresh: bool) -> tuple[li
     print(f"bom      {display(workspace, checkout)}")
     bom = parse_bom((checkout / "renglo.yaml").read_text(encoding="utf-8"))
     errors.extend(bom.errors)
-    if not bom.items and not bom.errors:
-        errors.append(f"{checkout / 'renglo.yaml'} has no packages")
     if not str(state.get("aws_region") or "").strip() and bom.region:
         state["aws_region"] = bom.region
 

@@ -8,6 +8,14 @@ from dataclasses import dataclass, field
 
 BRANCH = "develop"
 
+# Always cloned, even when `packages` is empty or omits them.
+# A BOM entry for the same folder wins, so a fork stays a fork.
+CORE_DEFAULTS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("renglo-lib", {"python": "renglo-lib"}),
+    ("renglo-api", {"python": "renglo-api"}),
+    ("console", {"npm": "@renglo/console"}),
+)
+
 _FIELD = re.compile(
     r"^\s+(python|npm|repo)\s*:\s*"
     r"(?:(?P<q>['\"])(?P<quoted>.*)(?P=q)|(?P<bare>\S+))"
@@ -66,7 +74,24 @@ def parse_bom(text: str) -> Bom:
                 python=bool(fields.get("python")),
             )
         )
+    items = _with_core(items)
     return Bom(name=name, region=region, wl_npm=wl_npm, items=items, errors=errors)
+
+
+def core_items() -> list[PlanItem]:
+    """The three checkouts every workspace has, using the public renglo repos."""
+    items: list[PlanItem] = []
+    for handle, fields in CORE_DEFAULTS:
+        repo = github_repo(handle, fields)
+        items.append(
+            PlanItem(
+                handle=handle,
+                repo=repo,
+                dest=checkout_path(repo, fields),
+                python=bool(fields.get("python")),
+            )
+        )
+    return items
 
 
 def github_repo(handle: str, fields: dict[str, str]) -> str:
@@ -99,6 +124,14 @@ def checkout_path(repo: str, fields: dict[str, str]) -> str:
         folder = name if name.endswith("-wl") else f"{name}-wl"
         return f"dev/{folder}"
     return f"extensions/{name}"
+
+
+def _with_core(items: list[PlanItem]) -> list[PlanItem]:
+    """Keep BOM checkouts, and fill in any of the three core folders that are absent."""
+    by_dest = {item.dest: item for item in items}
+    cores = [by_dest.get(item.dest, item) for item in core_items()]
+    core_dests = {item.dest for item in cores}
+    return cores + [item for item in items if item.dest not in core_dests]
 
 
 def parse_manifest(text: str) -> list[dict[str, str]]:
